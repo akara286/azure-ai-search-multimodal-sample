@@ -50,6 +50,7 @@ class KnowledgeBaseClient:
         azure_openai_endpoint: str,
         model_deployment: str,
         model_name: str = "gpt-5-mini",
+        semantic_configuration_name: Optional[str] = None,
     ):
         self.endpoint = endpoint
         self.credential = credential
@@ -58,6 +59,7 @@ class KnowledgeBaseClient:
         self.azure_openai_endpoint = azure_openai_endpoint
         self.model_deployment = model_deployment
         self.model_name = model_name
+        self.semantic_configuration_name = semantic_configuration_name
 
         self._index_client: Optional[SearchIndexClient] = None
         self._search_client: Optional[SearchClient] = None
@@ -99,37 +101,44 @@ class KnowledgeBaseClient:
 
             # Create knowledge source pointing to our index
             # 2025-11-01-preview schema for knowledge sources
+            # See: https://learn.microsoft.com/en-us/azure/search/agentic-knowledge-source-how-to-search-index
             # Fields based on actual index schema:
             # content_id, text_document_id, document_title, image_document_id,
             # content_text, content_embedding, content_path
+            search_index_params = {
+                "searchIndexName": self.index_name,
+                "sourceDataFields": [
+                    {"name": "content_id"},
+                    {"name": "text_document_id"},
+                    {"name": "document_title"},
+                    {"name": "image_document_id"},
+                    {"name": "content_text"},
+                    {"name": "content_path"},
+                ],
+                "searchFields": [
+                    {"name": "content_text"},
+                ],
+            }
+
+            # Add semantic configuration if provided
+            if self.semantic_configuration_name:
+                search_index_params["semanticConfigurationName"] = self.semantic_configuration_name
+
             knowledge_source_definition = {
                 "name": knowledge_source_name,
                 "kind": "searchIndex",  # Required: searchIndex, azureBlob, etc.
                 "description": f"Knowledge source for {self.index_name}",
-                "searchIndexParameters": {
-                    "searchIndexName": self.index_name,
-                    "sourceDataFields": [
-                        {"name": "content_id"},
-                        {"name": "text_document_id"},
-                        {"name": "document_title"},
-                        {"name": "image_document_id"},
-                        {"name": "content_text"},
-                        {"name": "content_embedding"},
-                        {"name": "content_path"},
-                    ],
-                    "searchFields": [
-                        {"name": "content_text"},
-                        {"name": "content_embedding"},
-                    ],
-                },
+                "searchIndexParameters": search_index_params,
             }
 
             # Create the knowledge base that references the source
             # 2025-11-01-preview schema for knowledge bases
+            # See: https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-create-knowledge-base
+            # outputMode: null (default) = raw data extraction, "answerSynthesis" = LLM-generated answers
             knowledge_base_definition = {
                 "name": self.knowledge_base_name,
-                "description": "Multimodal RAG knowledge base",
-                "retrievalInstructions": "Retrieve relevant documents to answer user questions about the indexed content. Include both text and image references when available.",
+                "description": "Multimodal RAG knowledge base for document Q&A",
+                "retrievalInstructions": "Use the user's question directly as the search query. Search for content that answers the user's specific question.",
                 "knowledgeSources": [
                     {"name": knowledge_source_name}
                 ],
@@ -247,28 +256,28 @@ class KnowledgeBaseClient:
         knowledge_source_name = f"{self.index_name}-source"
 
         # Build the retrieval request per 2025-11-01-preview schema
+        # See: https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-retrieve
+        # Note: outputMode is omitted to use default (raw data extraction)
         retrieval_request = {
             "messages": messages,
             "includeActivity": True,  # Include activity log for debugging
             "knowledgeSourceParams": [
                 {
                     "knowledgeSourceName": knowledge_source_name,
-                    "kind": "searchIndex",  # Required: searchIndex, azureBlob, etc.
+                    "kind": "searchIndex",
                     "includeReferences": True,
                     "includeReferenceSourceData": True,
+                    "alwaysQuerySource": True,  # Force query to this source
                 }
             ],
         }
 
-        # Add reasoning effort setting
+        # Add reasoning effort setting - must be low or medium for messages
         reasoning_effort = config.get("reasoning_effort", "low")
-        if reasoning_effort in ["minimal", "low", "medium"]:
+        if reasoning_effort in ["low", "medium"]:
             retrieval_request["retrievalReasoningEffort"] = {
                 "kind": reasoning_effort
             }
-
-        # Note: outputMode is not a valid parameter in 2025-11-01-preview retrieve API
-        # The Knowledge Base returns data based on its configuration
 
         # Add optional limits
         if config.get("max_runtime_seconds"):
@@ -289,12 +298,19 @@ class KnowledgeBaseClient:
         retrieve_url = f"{self.endpoint}/knowledgebases/{self.knowledge_base_name}/retrieve?api-version=2025-11-01-preview"
 
         async with aiohttp.ClientSession() as session:
+            logger.info(f"Sending retrieval request to: {retrieve_url}")
+            logger.debug(f"Retrieval request body: {retrieval_request}")
+
             async with session.post(retrieve_url, json=retrieval_request, headers=headers) as resp:
                 if resp.status not in [200, 206]:  # 206 = Partial Content
                     error_text = await resp.text()
                     raise Exception(f"Knowledge Base retrieval failed: {resp.status} - {error_text}")
 
                 result = await resp.json()
+                logger.info(f"Knowledge Base response status: {resp.status}")
+                logger.info(f"Knowledge Base response keys: {result.keys() if result else 'None'}")
+                logger.info(f"Knowledge Base references count: {len(result.get('references', []))}")
+                logger.info(f"Knowledge Base activity: {result.get('activity', [])}")
 
         # Parse the response
         return self._parse_retrieval_response(result)

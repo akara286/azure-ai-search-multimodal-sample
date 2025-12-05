@@ -126,14 +126,24 @@ class RagBase(ABC):
 
         complete_response: dict = {}
 
+        # Get JSON schema for structured outputs
+        answer_schema = AnswerFormat.json_schema_for_openai()
+
         if search_config.get("use_streaming", False):
-            logger.info("Streaming chat completion")
-            # Use raw OpenAI streaming to properly accumulate tokens
+            logger.info("Streaming chat completion with structured outputs")
+            # Use native json_schema for strict schema compliance
             stream = await self.openai_client.chat.completions.create(
                 stream=True,
                 model=self.chatcompletions_model_name,
                 messages=messages,
-                response_format={"type": "json_object"},
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "answer_format",
+                        "strict": True,
+                        "schema": answer_schema,
+                    },
+                },
             )
             msg_id = str(uuid.uuid4())
             accumulated_content = ""
@@ -198,13 +208,20 @@ class RagBase(ABC):
                     )
 
         else:
-            logger.info("Waiting for chat completion")
-            # Use raw OpenAI without streaming for consistency
+            logger.info("Non-streaming chat completion with structured outputs")
+            # Use native json_schema for strict schema compliance
             chat_response = await self.openai_client.chat.completions.create(
                 stream=False,
                 model=self.chatcompletions_model_name,
                 messages=messages,
-                response_format={"type": "json_object"},
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "answer_format",
+                        "strict": True,
+                        "schema": answer_schema,
+                    },
+                },
             )
             msg_id = str(uuid.uuid4())
 

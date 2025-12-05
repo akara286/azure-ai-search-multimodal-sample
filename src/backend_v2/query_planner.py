@@ -83,16 +83,33 @@ Return your response as a valid JSON object."""
             )
 
             content = response.choices[0].message.content
+
+            # Handle empty or None response
+            if not content or not content.strip():
+                logger.warning("Empty response from query planner, using original query")
+                return QueryPlan(
+                    original_query=user_message,
+                    subqueries=[
+                        SubQuery(
+                            query=user_message,
+                            intent="Direct search (empty planner response)",
+                            filters=None,
+                        )
+                    ],
+                    reasoning="Fallback due to empty planner response",
+                )
+
             plan_data = json.loads(content)
 
-            # Parse into QueryPlan model
+            # Parse into QueryPlan model - filter out empty queries
             subqueries = [
                 SubQuery(
-                    query=sq.get("query", ""),
+                    query=sq.get("query", "").strip(),
                     intent=sq.get("intent", ""),
                     filters=sq.get("filters"),
                 )
                 for sq in plan_data.get("subqueries", [])
+                if sq.get("query", "").strip()  # Only include non-empty queries
             ]
 
             # If no subqueries were generated, create one from the original

@@ -60,6 +60,7 @@ async def lifespan(app: FastAPI):
     search_endpoint = os.environ["SEARCH_SERVICE_ENDPOINT"]
     search_index = os.environ["SEARCH_INDEX_NAME"]
     knowledge_base_name = os.environ.get("KNOWLEDGE_BASE_NAME", os.environ.get("KNOWLEDGE_AGENT_NAME"))
+    semantic_configuration_name = os.environ.get("SEMANTIC_CONFIGURATION_NAME")
 
     storage_url = os.environ["ARTIFACTS_STORAGE_ACCOUNT_URL"]
     artifacts_container = os.environ["ARTIFACTS_STORAGE_CONTAINER"]
@@ -90,6 +91,7 @@ async def lifespan(app: FastAPI):
                 azure_openai_endpoint=openai_endpoint,
                 model_deployment=openai_deployment,
                 model_name=model_name,
+                semantic_configuration_name=semantic_configuration_name,
             )
             await knowledge_base_client.initialize()
             logger.info(f"Knowledge Base '{knowledge_base_name}' initialized")
@@ -263,6 +265,21 @@ async def chat_sync(request: Request):
             status_code=500,
             content={"error": str(e)},
         )
+
+
+@app.get("/")
+async def root():
+    """Root endpoint with API info."""
+    return {
+        "name": "Multimodal RAG API V2",
+        "version": "2.0.0",
+        "endpoints": {
+            "chat": "POST /v2/chat (streaming)",
+            "chat_sync": "POST /v2/chat/sync (non-streaming)",
+            "health": "GET /v2/health",
+            "config": "GET /v2/config",
+        },
+    }
 
 
 @app.get("/v2/health")

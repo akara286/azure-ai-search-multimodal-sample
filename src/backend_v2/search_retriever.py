@@ -96,8 +96,26 @@ class HybridSearchRetriever:
         all_query_rewrites: List[str] = []
         executed_subqueries: List[str] = []
 
+        # Filter out empty subqueries
+        valid_subqueries = [
+            sq for sq in subqueries
+            if sq.query and sq.query.strip()
+        ]
+
+        # If all subqueries are empty, fallback to user message
+        if not valid_subqueries:
+            logger.warning("All subqueries are empty, using original user message")
+            from models import SubQuery
+            valid_subqueries = [
+                SubQuery(
+                    query=user_message,
+                    intent="Fallback to original query",
+                    filters=None,
+                )
+            ]
+
         # Execute each subquery
-        for subquery in subqueries:
+        for subquery in valid_subqueries:
             results, rewrites = await self._execute_search(
                 query=subquery.query,
                 config=config,
