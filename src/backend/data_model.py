@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Any
 from backend.models import (
     SearchRequestParameters,
     SearchConfig,
@@ -29,7 +29,7 @@ class DataModel(ABC):
         pass
 
     @abstractmethod
-    async def collect_grounding_results(self, search_results: List[dict]) -> list:
+    async def collect_grounding_results(self, search_results: list[dict]) -> list:
         """Collects and formats documents from search results."""
         pass
 
@@ -73,8 +73,8 @@ class DocumentPerChunkDataModel(DataModel):
         }
 
     async def collect_grounding_results(
-        self, search_results: List[dict]
-    ) -> List[GroundingResult]:
+        self, search_results: list[dict]
+    ) -> list[GroundingResult]:
         collected_documents = []
         for result in search_results:
             is_image = result.get("image_document_id") is not None

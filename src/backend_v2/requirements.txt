@@ -1,0 +1,25 @@
+# Backend V2 Requirements - Modernized Multimodal RAG
+# Requires Python 3.11+
+
+# Web Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# Azure SDKs
+azure-identity>=1.19.0
+azure-search-documents>=11.6.0b8  # Preview for Knowledge Base API
+azure-storage-blob>=12.24.0
+azure-ai-inference>=1.0.0b9  # Latest preview
+
+# OpenAI
+openai>=1.55.0
+
+# Data Validation
+pydantic>=2.10.0
+
+# Async HTTP
+aiohttp>=3.11.0
+aiofiles>=24.1.0
+
+# Utilities
+python-dotenv>=1.0.1

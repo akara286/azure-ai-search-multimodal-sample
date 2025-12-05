@@ -59,9 +59,7 @@ const ChatContent: React.FC<Props> = ({ thread, processingStepMsg }) => {
     const renderWithCitations = (children: React.ReactNode) => {
         return React.Children.map(children, child => {
             if (typeof child === "string") {
-                return child
-                    .split(citationRegex)
-                    .map((part, index) => (index % 2 === 0 ? part : index % 2 === 1 ? citationHit(index, part) : null));
+                return child.split(citationRegex).map((part, index) => (index % 2 === 0 ? part : index % 2 === 1 ? citationHit(index, part) : null));
             }
             return child;
         });
@@ -97,7 +95,14 @@ const ChatContent: React.FC<Props> = ({ thread, processingStepMsg }) => {
                                             {message.type === ThreadType.Answer && (
                                                 <ReactMarkdown
                                                     components={{
-                                                        p: ({ children }) => <p>{renderWithCitations(children)}</p>
+                                                        p: ({ children }) => <p>{renderWithCitations(children)}</p>,
+                                                        li: ({ children }) => <li>{renderWithCitations(children)}</li>,
+                                                        h1: ({ children }) => <h1>{renderWithCitations(children)}</h1>,
+                                                        h2: ({ children }) => <h2>{renderWithCitations(children)}</h2>,
+                                                        h3: ({ children }) => <h3>{renderWithCitations(children)}</h3>,
+                                                        h4: ({ children }) => <h4>{renderWithCitations(children)}</h4>,
+                                                        h5: ({ children }) => <h5>{renderWithCitations(children)}</h5>,
+                                                        h6: ({ children }) => <h6>{renderWithCitations(children)}</h6>
                                                     }}
                                                     remarkPlugins={[remarkGfm]}
                                                 >

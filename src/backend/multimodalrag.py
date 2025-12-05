@@ -6,7 +6,7 @@ from azure.search.documents.aio import SearchClient
 from azure.search.documents.agent import KnowledgeAgentRetrievalClient
 from azure.storage.blob import ContainerClient
 from openai import AsyncAzureOpenAI
-from typing import List
+from typing import Any
 from backend.grounding_retriever import GroundingRetriever
 from backend.knowledge_agent import KnowledgeAgentGrounding
 from backend.helpers import get_blob_as_base64
@@ -115,7 +115,7 @@ class MultimodalRag(RagBase):
     async def prepare_llm_messages(
         self,
         grounding_results: GroundingResults,
-        chat_thread: List[Message],
+        chat_thread: list[Message],
         search_text: str,
     ):
         logger.info("Preparing LLM messages")
@@ -180,7 +180,7 @@ class MultimodalRag(RagBase):
     async def extract_citations(
         self,
         grounding_retriever: GroundingRetriever,
-        grounding_results: List[GroundingResult],
+        grounding_results: list[GroundingResult],
         text_citation_ids: list,
         image_citation_ids: list,
     ) -> dict:

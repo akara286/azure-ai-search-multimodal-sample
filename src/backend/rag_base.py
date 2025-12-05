@@ -1,15 +1,15 @@
 import logging
 import json
+import re
 import time
 import uuid
 import asyncio
-from typing import List, Any
+from typing import Any
 from abc import ABC, abstractmethod
 from enum import Enum
 
 from fastapi import Request
 from fastapi.responses import StreamingResponse
-import instructor
 from openai import AsyncAzureOpenAI
 
 from backend.grounding_retriever import GroundingRetriever
@@ -145,8 +145,6 @@ class RagBase(ABC):
                     # Try to extract partial answer from accumulated JSON for streaming UI
                     try:
                         if '"answer"' in accumulated_content:
-                            import re
-
                             # Match answer value, handling escaped quotes
                             match = re.search(
                                 r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)',
@@ -261,7 +259,7 @@ class RagBase(ABC):
         request_id: str,
         response: asyncio.Queue,
         grounding_retriever: GroundingRetriever,
-        grounding_results: List[GroundingResult],
+        grounding_results: list[GroundingResult],
         text_citation_ids: list,
         image_citation_ids: list,
     ):
@@ -285,7 +283,7 @@ class RagBase(ABC):
     async def extract_citations(
         self,
         grounding_retriever: GroundingRetriever,
-        grounding_results: List[GroundingResult],
+        grounding_results: list[GroundingResult],
         text_citation_ids: list,
         image_citation_ids: list,
     ) -> dict:

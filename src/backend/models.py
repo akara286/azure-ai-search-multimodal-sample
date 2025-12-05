@@ -1,25 +1,30 @@
-from typing import List, Literal, Optional, Dict, TypedDict
+"""
+Domain models for the multimodal RAG application.
+Uses modern Python 3.10+ type hints.
+"""
+
+from typing import Literal, TypedDict
 from pydantic import BaseModel, Field
 
 
-class SearchConfig(TypedDict):
+class SearchConfig(TypedDict, total=False):
     """Configuration for search parameters."""
 
-    chunk_count: int = 10
-    openai_api_mode: Literal["chat_completions"] = "chat_completions"
-    use_semantic_ranker: bool = False
-    use_streaming: bool = False
-    use_knowledge_agent: bool = False
+    chunk_count: int
+    openai_api_mode: Literal["chat_completions"]
+    use_semantic_ranker: bool
+    use_streaming: bool
+    use_knowledge_agent: bool
 
 
-class SearchRequestParameters(TypedDict):
+class SearchRequestParameters(TypedDict, total=False):
     """Structure for search request payload."""
 
     search: str
-    top: int = 10
-    vector_queries: Optional[List[Dict[str, str]]] = None
-    semantic_configuration_name: Optional[str] = None
-    search_fields: Optional[List[str]] = None
+    top: int
+    vector_queries: list[dict[str, str]] | None
+    semantic_configuration_name: str | None
+    search_fields: list[str] | None
 
 
 class GroundingResult(TypedDict):
@@ -31,27 +36,59 @@ class GroundingResult(TypedDict):
 
 
 class GroundingResults(TypedDict):
-    """Structure for grrounding results with references and queries."""
+    """Structure for grounding results with references and queries."""
 
-    references: List[GroundingResult]
-    search_queries: List[str]
+    references: list["GroundingResult"]
+    search_queries: list[str]
 
 
 class AnswerFormat(BaseModel):
-    """Format for chat completion responses."""
+    """Format for chat completion responses.
+
+    Uses Field aliases to match the camelCase JSON output from the LLM.
+    """
 
     answer: str
-    text_citations: List[str] = Field(default=[], alias="text_Citations")
-    image_citations: List[str] = Field(default=[], alias="image_Citations")
+    text_citations: list[str] = Field(default_factory=list, alias="text_Citations")
+    image_citations: list[str] = Field(default_factory=list, alias="image_Citations")
 
     model_config = {"populate_by_name": True}
 
+    @classmethod
+    def json_schema_for_openai(cls) -> dict:
+        """Generate JSON schema compatible with OpenAI structured outputs."""
+        return {
+            "type": "object",
+            "properties": {
+                "answer": {
+                    "type": "string",
+                    "description": "The answer in Markdown format",
+                },
+                "text_Citations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Reference IDs of text documents used",
+                },
+                "image_Citations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Reference IDs of images used",
+                },
+            },
+            "required": ["answer", "text_Citations", "image_Citations"],
+            "additionalProperties": False,
+        }
+
 
 class MessageContent(TypedDict):
+    """Content within a chat message."""
+
     text: str
     type: Literal["text"]
 
 
 class Message(TypedDict):
+    """Structure for chat messages."""
+
     role: Literal["user", "assistant", "system"]
-    content: List[MessageContent]
+    content: list[MessageContent]

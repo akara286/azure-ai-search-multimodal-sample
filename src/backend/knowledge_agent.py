@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import aiohttp
-from typing import List
+from typing import Any
 from backend.data_model import DataModel
 from backend.models import Message, GroundingResults, GroundingResult
 from azure.search.documents.agent.aio import KnowledgeAgentRetrievalClient
@@ -84,7 +84,7 @@ class KnowledgeAgentGrounding(GroundingRetriever):
     async def retrieve(
         self,
         user_message: str,
-        chat_thread: List[Message],
+        chat_thread: list[Message],
         options: dict,
     ) -> GroundingResults:
 
@@ -107,7 +107,7 @@ class KnowledgeAgentGrounding(GroundingRetriever):
             )
 
             result_dict = result.as_dict()
-            references: List[GroundingResult] = []
+            references: list[GroundingResult] = []
             for ref in result_dict["response"]:
                 for content in ref.get("content", []):
                     content_text = json.loads(content.get("text", "{}"))
@@ -131,8 +131,8 @@ class KnowledgeAgentGrounding(GroundingRetriever):
             raise
 
     async def _get_text_citations(
-        self, ref_ids: List[str], grounding_results: GroundingResults
-    ) -> List[dict]:
+        self, ref_ids: list[str], grounding_results: GroundingResults
+    ) -> list[dict]:
         try:
             citations = []
             for ref_id in ref_ids:
@@ -144,8 +144,8 @@ class KnowledgeAgentGrounding(GroundingRetriever):
             raise
 
     async def _get_image_citations(
-        self, ref_ids: List[str], grounding_results: GroundingResults
-    ) -> List[dict]:
+        self, ref_ids: list[str], grounding_results: GroundingResults
+    ) -> list[dict]:
         return []
 
     """Need to use document id as the reference id so I can lookkup the document properties for citations"""

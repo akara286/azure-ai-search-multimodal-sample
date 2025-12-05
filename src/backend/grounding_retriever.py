@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Any
 from backend.models import Message, GroundingResults
 
 
@@ -14,7 +14,7 @@ class GroundingRetriever(ABC):
     async def retrieve(
         self,
         user_message: str,
-        chat_thread: List[Message],
+        chat_thread: list[Message],
         options: dict,
     ) -> GroundingResults:
         """Retrieve relevant documents based on the user message and chat history.
@@ -34,12 +34,12 @@ class GroundingRetriever(ABC):
 
     @abstractmethod
     async def _get_text_citations(
-        self, ref_ids: List[str], grounding_results: GroundingResults
-    ) -> List[dict]:
+        self, ref_ids: list[str], grounding_results: GroundingResults
+    ) -> list[dict]:
         pass
 
     @abstractmethod
     async def _get_image_citations(
-        self, ref_ids: List[str], grounding_results: GroundingResults
-    ) -> List[dict]:
+        self, ref_ids: list[str], grounding_results: GroundingResults
+    ) -> list[dict]:
         pass

@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, TypedDict
+from typing import Dict, TypedDict
 from openai import AsyncAzureOpenAI
 from backend.data_model import DataModel
 from backend.prompts import SEARCH_QUERY_SYSTEM_PROMPT
@@ -27,7 +27,7 @@ class SearchGroundingRetriever(GroundingRetriever):
     async def retrieve(
         self,
         user_message: str,
-        chat_thread: List[Message],
+        chat_thread: list[Message],
         options: SearchConfig,
     ) -> GroundingResults:
 
@@ -58,7 +58,7 @@ class SearchGroundingRetriever(GroundingRetriever):
         }
 
     async def _generate_search_query(
-        self, user_message: str, chat_thread: List[Message]
+        self, user_message: str, chat_thread: list[Message]
     ) -> str:
         try:
             messages = [
@@ -80,18 +80,18 @@ class SearchGroundingRetriever(GroundingRetriever):
             )
 
     async def _get_image_citations(
-        self, ref_ids: List[str], grounding_results: GroundingResults
-    ) -> List[dict]:
+        self, ref_ids: list[str], grounding_results: GroundingResults
+    ) -> list[dict]:
         return self._extract_citations(ref_ids, grounding_results)
 
     async def _get_text_citations(
-        self, ref_ids: List[str], grounding_results: GroundingResults
-    ) -> List[dict]:
+        self, ref_ids: list[str], grounding_results: GroundingResults
+    ) -> list[dict]:
         return self._extract_citations(ref_ids, grounding_results)
 
     def _extract_citations(
-        self, ref_ids: List[str], grounding_results: GroundingResults
-    ) -> List[dict]:
+        self, ref_ids: list[str], grounding_results: GroundingResults
+    ) -> list[dict]:
         if not ref_ids:
             return []
 

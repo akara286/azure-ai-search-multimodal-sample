@@ -18,13 +18,13 @@ export default defineConfig({
     server: {
         proxy: {
             "/chat": {
-                target: "http://localhost:5000"
+                target: "http://localhost:5001"
             },
             "/list_indexes": {
-                target: "http://localhost:5000"
+                target: "http://localhost:5001"
             },
             "/get_citation_doc": {
-                target: "http://localhost:5000"
+                target: "http://localhost:5001"
             }
         }
     }
