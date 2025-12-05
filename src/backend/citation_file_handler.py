@@ -1,4 +1,3 @@
-from aiohttp import web
 from azure.storage.blob.aio import ContainerClient, BlobServiceClient
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 
@@ -14,13 +13,12 @@ class CitationFilesHandler:
         self.container_client = samples_container_client
         self.blob_service_client = blob_service_client
 
-    async def handle(self, request):
+    async def get_citation_doc(self, file_name: str):
         try:
-            data = await request.json()
-            response = await self._get_file_url(data["fileName"])
-            return web.json_response(response)
+            response = await self._get_file_url(file_name)
+            return response
         except Exception as e:
-            return web.json_response({"status": "error", "message": str(e)}, status=500)
+            raise e
 
     async def _get_file_url(self, blob_name: str):
         blob_client = self.container_client.get_blob_client(

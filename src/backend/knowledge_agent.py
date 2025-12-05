@@ -3,8 +3,8 @@ import json
 import logging
 import aiohttp
 from typing import List
-from data_model import DataModel
-from models import Message, GroundingResults, GroundingResult
+from backend.data_model import DataModel
+from backend.models import Message, GroundingResults, GroundingResult
 from azure.search.documents.agent.aio import KnowledgeAgentRetrievalClient
 from azure.search.documents.agent.models import KnowledgeAgentRetrievalResponse
 from azure.search.documents.indexes.models import (
@@ -15,7 +15,7 @@ from azure.search.documents.indexes.models import (
 )
 from azure.search.documents.aio import SearchClient
 from azure.search.documents.indexes.aio import SearchIndexClient
-from grounding_retriever import GroundingRetriever
+from backend.grounding_retriever import GroundingRetriever
 
 logger = logging.getLogger("grounding")
 

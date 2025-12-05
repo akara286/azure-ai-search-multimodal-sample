@@ -1,7 +1,12 @@
 import logging
 import os
 from pathlib import Path
-from aiohttp import web
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from rich.logging import RichHandler
 from openai import AsyncAzureOpenAI
 from azure.identity.aio import (
@@ -15,12 +20,12 @@ from azure.core.pipeline.policies import UserAgentPolicy
 
 from azure.storage.blob.aio import BlobServiceClient
 
-from search_grounding import SearchGroundingRetriever
-from knowledge_agent import KnowledgeAgentGrounding
-from constants import USER_AGENT
-from multimodalrag import MultimodalRag
-from data_model import DocumentPerChunkDataModel
-from citation_file_handler import CitationFilesHandler
+from backend.search_grounding import SearchGroundingRetriever
+from backend.knowledge_agent import KnowledgeAgentGrounding
+from backend.constants import USER_AGENT
+from backend.multimodalrag import MultimodalRag
+from backend.data_model import DocumentPerChunkDataModel
+from backend.citation_file_handler import CitationFilesHandler
 
 
 logging.basicConfig(
@@ -30,15 +35,13 @@ logging.basicConfig(
     handlers=[RichHandler(rich_tracebacks=True)],
 )
 
-
-async def list_indexes(index_client: SearchIndexClient):
-    indexes = []
-    async for index in index_client.list_indexes():
-        indexes.append({"name": index.name})
-    return web.json_response([index["name"] for index in indexes])
+# Global variables to hold app state
+app_state = {}
 
 
-async def create_app():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     tokenCredential = DefaultAzureCredential()
     tokenProvider = get_bearer_token_provider(
         tokenCredential,
@@ -109,8 +112,6 @@ async def create_app():
         os.environ["SAMPLES_STORAGE_CONTAINER"]
     )
 
-    app = web.Application(middlewares=[])
-
     mmrag = MultimodalRag(
         knowledge_agent,
         search_grounding,
@@ -118,28 +119,66 @@ async def create_app():
         chatcompletions_model_name,
         artifacts_container_client,
     )
-    mmrag.attach_to_app(app, "/chat")
 
     citation_files_handler = CitationFilesHandler(
         blob_service_client, samples_container_client
     )
 
-    current_directory = Path(__file__).parent
-    app.add_routes(
-        [
-            web.get(
-                "/", lambda _: web.FileResponse(current_directory / "static/index.html")
-            ),
-            web.get("/list_indexes", lambda _: list_indexes(index_client)),
-            web.post("/get_citation_doc", citation_files_handler.handle),
-        ]
-    )
-    app.router.add_static("/", path=current_directory / "static", name="static")
+    # Store in app state
+    app_state["index_client"] = index_client
+    app_state["citation_files_handler"] = citation_files_handler
+    app_state["mmrag"] = mmrag
 
-    return app
+    yield
 
+    # Shutdown
+    await tokenCredential.close()
+    await search_client.close()
+    await index_client.close()
+    await ka_retrieval_client.close()
+    await openai_client.close()
+    await blob_service_client.close()
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+class CitationRequest(BaseModel):
+    fileName: str
+
+
+@app.get("/list_indexes")
+async def list_indexes():
+    index_client = app_state["index_client"]
+    indexes = []
+    async for index in index_client.list_indexes():
+        indexes.append(index.name)
+    return indexes
+
+
+@app.post("/get_citation_doc")
+async def get_citation_doc(request: Request):
+    data = await request.json()
+    handler = app_state["citation_files_handler"]
+    return await handler.get_citation_doc(data["fileName"])
+
+
+@app.post("/chat")
+async def chat(request: Request):
+    mmrag = app_state["mmrag"]
+    return await mmrag._handle_request(request)
+
+
+# Serve static files
+current_directory = Path(__file__).parent
+static_dir = current_directory / "static"
+
+# Mount static directory
+app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 if __name__ == "__main__":
+    import uvicorn
+
     host = os.environ.get("HOST", "localhost")
     port = int(os.environ.get("PORT", 5000))
-    web.run_app(create_app(), host=host, port=port)
+    uvicorn.run(app, host=host, port=port)

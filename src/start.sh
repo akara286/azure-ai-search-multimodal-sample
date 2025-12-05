@@ -5,7 +5,7 @@ azurePath="$root/.azure"
 frontendPath="$root/src/frontend"
 
 # find the .env file in the azurePath directory recursively
-envFile=$(find $azurePath -type f -name ".env"| head -n 1)
+envFile=$(find "$azurePath" -type f -name ".env"| head -n 1)
 
 if [ -f "$envFile" ]; then
     echo ".env file found at: $envFile"
@@ -28,12 +28,12 @@ fi
 eval $(echo "$azdEnv" | jq -r 'to_entries | .[] | "export \(.key)=\(.value)"')
 
 echo 'Restore and build frontend'
-cd $frontendPath
+cd "$frontendPath"
 npm install
 npm run build
 
 echo 'Build and start backend'
-cd $root
+cd "$root"
 
 echo 'Creating Python virtual environment'
 python3 -m venv .venv
@@ -41,5 +41,6 @@ python3 -m venv .venv
 echo 'Installing dependencies from "requirements.txt" into virtual environment (in quiet mode)...'
 .venv/bin/python -m pip --quiet --disable-pip-version-check install -r src/backend/requirements.txt
 
-echo 'Starting the app'
-.venv/bin/python "src/backend/app.py"
+echo 'Start backend'
+export PYTHONPATH=$root/src
+.venv/bin/uvicorn backend.app:app --host 0.0.0.0 --port $PORT

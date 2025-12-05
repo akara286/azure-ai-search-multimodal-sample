@@ -1,23 +1,23 @@
 import json
 import logging
+import asyncio
 from os import path
-from aiohttp import web
 from azure.search.documents.aio import SearchClient
 from azure.search.documents.agent import KnowledgeAgentRetrievalClient
 from azure.storage.blob import ContainerClient
 from openai import AsyncAzureOpenAI
 from typing import List
-from grounding_retriever import GroundingRetriever
-from knowledge_agent import KnowledgeAgentGrounding
-from helpers import get_blob_as_base64
-from search_grounding import SearchGroundingRetriever
-from rag_base import RagBase
-from data_model import DataModel
-from prompts import (
+from backend.grounding_retriever import GroundingRetriever
+from backend.knowledge_agent import KnowledgeAgentGrounding
+from backend.helpers import get_blob_as_base64
+from backend.search_grounding import SearchGroundingRetriever
+from backend.rag_base import RagBase
+from backend.data_model import DataModel
+from backend.prompts import (
     SYSTEM_PROMPT_NO_META_DATA,
 )
-from processing_step import ProcessingStep
-from models import GroundingResult, Message, SearchConfig, GroundingResults
+from backend.processing_step import ProcessingStep
+from backend.models import GroundingResult, Message, SearchConfig, GroundingResults
 
 logger = logging.getLogger("multimodalrag")
 
@@ -45,7 +45,7 @@ class MultimodalRag(RagBase):
     async def _process_request(
         self,
         request_id: str,
-        response: web.StreamResponse,
+        response: asyncio.Queue,
         user_message: str,
         chat_thread: list,
         search_config: SearchConfig,
@@ -80,7 +80,7 @@ class MultimodalRag(RagBase):
                 ProcessingStep(
                     title="Grounding results received",
                     type="code",
-                    description=f"Retrieved {len(grounding_results["references"])} results.",
+                    description=f"Retrieved {len(grounding_results['references'])} results.",
                     content=grounding_results,
                 ),
             )
@@ -133,7 +133,7 @@ class MultimodalRag(RagBase):
                     collected_documents.append(
                         {
                             "type": "text",
-                            "text": f"The image below has the ID: [{doc["ref_id"]}]",
+                            "text": f"The image below has the ID: [{doc['ref_id']}]",
                         }
                     )
                     # blob path differs if index was created through self script in repo or from the portal mulitmodal RAG wizard

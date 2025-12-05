@@ -1,22 +1,25 @@
 import logging
 import json
-import os
 import time
-from typing import List
 import uuid
+import asyncio
+from typing import List, Any
 from abc import ABC, abstractmethod
 from enum import Enum
-from aiohttp import web
+
+from fastapi import Request
+from fastapi.responses import StreamingResponse
 import instructor
 from openai import AsyncAzureOpenAI
-from grounding_retriever import GroundingRetriever
-from models import (
+
+from backend.grounding_retriever import GroundingRetriever
+from backend.models import (
     AnswerFormat,
     SearchConfig,
     GroundingResult,
     GroundingResults,
 )
-from processing_step import ProcessingStep
+from backend.processing_step import ProcessingStep
 
 logger = logging.getLogger("rag")
 
@@ -40,8 +43,12 @@ class RagBase(ABC):
         self.openai_client = openai_client
         self.chatcompletions_model_name = chatcompletions_model_name
 
-    async def _handle_request(self, request: web.Request):
-        request_params = await request.json()
+    async def _handle_request(self, request: Request):
+        try:
+            request_params = await request.json()
+        except Exception:
+            request_params = {}
+
         search_text = request_params.get("query", "")
         chat_thread = request_params.get("chatThread", [])
         config_dict = request_params.get("config", {})
@@ -53,24 +60,46 @@ class RagBase(ABC):
             use_knowledge_agent=config_dict.get("use_knowledge_agent", False),
         )
         request_id = request_params.get("request_id", str(int(time.time())))
-        response = await self._create_stream_response(request)
-        try:
-            await self._process_request(
-                request_id, response, search_text, chat_thread, search_config
-            )
-        except Exception as e:
-            print(e)
-            logger.error(f"Error processing request: {str(e)}")
-            await self._send_error_message(request_id, response, str(e))
 
-        await self._send_end(response)
-        return response
+        # Queue for streaming response
+        queue = asyncio.Queue()
+
+        async def process_task():
+            try:
+                await self._process_request(
+                    request_id, queue, search_text, chat_thread, search_config
+                )
+            except Exception as e:
+                logger.error(f"Error processing request: {str(e)}")
+                await self._send_error_message(request_id, queue, str(e))
+            finally:
+                await self._send_end(queue)
+                await queue.put(None)  # Sentinel to stop stream
+
+        # Start processing in background
+        asyncio.create_task(process_task())
+
+        async def stream_generator():
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield item
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+            },
+        )
 
     @abstractmethod
     async def _process_request(
         self,
         request_id: str,
-        response: web.StreamResponse,
+        response: asyncio.Queue,
         search_text: str,
         chat_thread: list,
         search_config: SearchConfig,
@@ -80,7 +109,7 @@ class RagBase(ABC):
     async def _formulate_response(
         self,
         request_id: str,
-        response: web.StreamResponse,
+        response: asyncio.Queue,
         messages: list,
         grounding_retriever: GroundingRetriever,
         grounding_results: GroundingResults,
@@ -99,64 +128,138 @@ class RagBase(ABC):
 
         if search_config.get("use_streaming", False):
             logger.info("Streaming chat completion")
-            chat_stream_response = instructor.from_openai(
-                self.openai_client,
-            ).chat.completions.create_partial(
+            # Use raw OpenAI streaming to properly accumulate tokens
+            stream = await self.openai_client.chat.completions.create(
                 stream=True,
                 model=self.chatcompletions_model_name,
-                response_model=AnswerFormat,
                 messages=messages,
+                response_format={"type": "json_object"},
             )
             msg_id = str(uuid.uuid4())
+            accumulated_content = ""
+            last_sent_answer = ""
 
-            async for stream_response in chat_stream_response:
-                if stream_response.answer is not None:
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    accumulated_content += chunk.choices[0].delta.content
+                    # Try to extract partial answer from accumulated JSON for streaming UI
+                    try:
+                        if '"answer"' in accumulated_content:
+                            import re
+
+                            # Match answer value, handling escaped quotes
+                            match = re.search(
+                                r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)',
+                                accumulated_content,
+                            )
+                            if match:
+                                partial_answer = (
+                                    match.group(1)
+                                    .replace('\\"', '"')
+                                    .replace("\\n", "\n")
+                                )
+                                if partial_answer != last_sent_answer:
+                                    await self._send_answer_message(
+                                        request_id, response, msg_id, partial_answer
+                                    )
+                                    last_sent_answer = partial_answer
+                    except Exception:
+                        pass
+
+            # Parse final response
+            logger.info(f"Final accumulated content length: {len(accumulated_content)}")
+            try:
+                parsed = AnswerFormat.model_validate_json(accumulated_content)
+                complete_response = parsed.model_dump()
+                # Send final complete answer
+                await self._send_answer_message(
+                    request_id, response, msg_id, parsed.answer
+                )
+            except Exception as e:
+                logger.error(f"Failed to parse with Pydantic: {e}")
+                # Fall back to manual JSON parsing
+                import json
+
+                try:
+                    data = json.loads(accumulated_content)
+                    complete_response = {
+                        "answer": data.get("answer", ""),
+                        "text_citations": data.get(
+                            "text_citations", data.get("text_Citations", [])
+                        ),
+                        "image_citations": data.get(
+                            "image_citations", data.get("image_Citations", [])
+                        ),
+                    }
                     await self._send_answer_message(
-                        request_id, response, msg_id, stream_response.answer
+                        request_id, response, msg_id, complete_response["answer"]
                     )
-                    complete_response = stream_response.model_dump()
-            if len(complete_response.keys()) == 0:
-                raise ValueError("No response received from chat completion stream.")
+                except json.JSONDecodeError:
+                    raise ValueError(
+                        f"Could not parse JSON response: {accumulated_content[:500]}"
+                    )
 
         else:
             logger.info("Waiting for chat completion")
-            chat_completion = await instructor.from_openai(
-                self.openai_client,
-            ).chat.completions.create(
+            # Use raw OpenAI without streaming for consistency
+            chat_response = await self.openai_client.chat.completions.create(
                 stream=False,
                 model=self.chatcompletions_model_name,
-                response_model=AnswerFormat,
                 messages=messages,
+                response_format={"type": "json_object"},
             )
             msg_id = str(uuid.uuid4())
 
-            if chat_completion is not None:
+            if chat_response.choices and chat_response.choices[0].message.content:
+                content = chat_response.choices[0].message.content
+                logger.info(f"Non-streaming response length: {len(content)}")
+                try:
+                    parsed = AnswerFormat.model_validate_json(content)
+                    complete_response = parsed.model_dump()
+                except Exception as e:
+                    logger.error(f"Failed to parse with Pydantic: {e}")
+                    import json
+
+                    data = json.loads(content)
+                    complete_response = {
+                        "answer": data.get("answer", ""),
+                        "text_citations": data.get(
+                            "text_citations", data.get("text_Citations", [])
+                        ),
+                        "image_citations": data.get(
+                            "image_citations", data.get("image_Citations", [])
+                        ),
+                    }
                 await self._send_answer_message(
-                    request_id, response, msg_id, chat_completion.answer
+                    request_id, response, msg_id, complete_response["answer"]
                 )
-                complete_response = chat_completion.model_dump()
             else:
-                raise ValueError("No response received from chat completion stream.")
-            
+                raise ValueError("No response received from chat completion.")
+
         await self._send_processing_step_message(
             request_id,
             response,
-            ProcessingStep(title="LLM response", type="code", content=complete_response),
+            ProcessingStep(
+                title="LLM response", type="code", content=complete_response
+            ),
         )
 
+        logger.info(
+            f"Extracting citations - text_citations: {complete_response.get('text_citations', [])}, image_citations: {complete_response.get('image_citations', [])}"
+        )
         await self._extract_and_send_citations(
             request_id,
             response,
             grounding_retriever,
             grounding_results["references"],
-            complete_response["text_citations"] or [],
-            complete_response["image_citations"] or [],
+            complete_response.get("text_citations") or [],
+            complete_response.get("image_citations") or [],
         )
 
     async def _extract_and_send_citations(
         self,
         request_id: str,
-        response: web.StreamResponse,
+        response: asyncio.Queue,
         grounding_retriever: GroundingRetriever,
         grounding_results: List[GroundingResult],
         text_citation_ids: list,
@@ -188,22 +291,8 @@ class RagBase(ABC):
     ) -> dict:
         pass
 
-    async def _create_stream_response(self, request):
-        """Creates and prepares the SSE stream response."""
-        response = web.StreamResponse(
-            status=200,
-            reason="OK",
-            headers={
-                "Content-Type": "text/event-stream",
-                "Connection": "keep-alive",
-                "Cache-Control": "no-cache, no-transform",
-            },
-        )
-        await response.prepare(request)
-        return response
-
     async def _send_error_message(
-        self, request_id: str, response: web.StreamResponse, message: str
+        self, request_id: str, response: asyncio.Queue, message: str
     ):
         """Sends an error message through the stream."""
         await self._send_message(
@@ -219,7 +308,7 @@ class RagBase(ABC):
     async def _send_info_message(
         self,
         request_id: str,
-        response: web.StreamResponse,
+        response: asyncio.Queue,
         message: str,
         details: str = None,
     ):
@@ -238,7 +327,7 @@ class RagBase(ABC):
     async def _send_processing_step_message(
         self,
         request_id: str,
-        response: web.StreamResponse,
+        response: asyncio.Queue,
         processing_step: ProcessingStep,
     ):
         logger.info(
@@ -257,7 +346,7 @@ class RagBase(ABC):
     async def _send_answer_message(
         self,
         request_id: str,
-        response: web.StreamResponse,
+        response: asyncio.Queue,
         message_id: str,
         content: str,
     ):
@@ -275,7 +364,7 @@ class RagBase(ABC):
     async def _send_citation_message(
         self,
         request_id: str,
-        response: web.StreamResponse,
+        response: asyncio.Queue,
         message_id: str,
         text_citations: list,
         image_citations: list,
@@ -292,21 +381,15 @@ class RagBase(ABC):
             },
         )
 
-    async def _send_message(self, response, event, data):
+    async def _send_message(self, response: asyncio.Queue, event, data):
         try:
-            await response.write(
-                f"event:{event}\ndata: {json.dumps(data)}\n\n".encode("utf-8")
-            )
-        except ConnectionResetError:
-            # TODO: Something is wrong here, the messages attempted and failed here is not what the UI sees, thats another set of stream...
-            # logger.warning("Connection reset by client.")
-            pass
+            await response.put(f"event:{event}\ndata: {json.dumps(data)}\n\n")
         except Exception as e:
             logger.error(f"Error sending message: {e}")
 
-    async def _send_end(self, response):
+    async def _send_end(self, response: asyncio.Queue):
         await self._send_message(response, MessageType.END.value, {})
 
     def attach_to_app(self, app, path):
         """Attaches the handler to the web app."""
-        app.router.add_post(path, self._handle_request)
+        app.add_api_route(path, self._handle_request, methods=["POST"])

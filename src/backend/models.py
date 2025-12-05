@@ -1,5 +1,5 @@
 from typing import List, Literal, Optional, Dict, TypedDict
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SearchConfig(TypedDict):
@@ -41,8 +41,10 @@ class AnswerFormat(BaseModel):
     """Format for chat completion responses."""
 
     answer: str
-    text_citations: List[str] = []
-    image_citations: List[str] = []
+    text_citations: List[str] = Field(default=[], alias="text_Citations")
+    image_citations: List[str] = Field(default=[], alias="image_Citations")
+
+    model_config = {"populate_by_name": True}
 
 
 class MessageContent(TypedDict):

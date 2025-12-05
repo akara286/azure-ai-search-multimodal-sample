@@ -1,11 +1,11 @@
 import logging
 from typing import List, Dict, TypedDict
 from openai import AsyncAzureOpenAI
-from data_model import DataModel
-from prompts import SEARCH_QUERY_SYSTEM_PROMPT
-from models import Message, SearchConfig, GroundingResults
+from backend.data_model import DataModel
+from backend.prompts import SEARCH_QUERY_SYSTEM_PROMPT
+from backend.models import Message, SearchConfig, GroundingResults
 from azure.search.documents.aio import SearchClient
-from grounding_retriever import GroundingRetriever
+from backend.grounding_retriever import GroundingRetriever
 
 logger = logging.getLogger("groundingapi")
 

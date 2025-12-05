@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List
-from models import Message, GroundingResults
+from backend.models import Message, GroundingResults
 
 
 class GroundingRetriever(ABC):
