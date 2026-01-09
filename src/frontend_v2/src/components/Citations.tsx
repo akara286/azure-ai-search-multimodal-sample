@@ -1,7 +1,7 @@
 import React from "react";
 
 import { Caption1Strong, InteractionTag, InteractionTagPrimary } from "@fluentui/react-components";
-import { ImageCopy24Filled, Text12Filled } from "@fluentui/react-icons";
+import { ImageCopy24Filled } from "@fluentui/react-icons";
 
 import { Citation } from "../api/models";
 import CitationViewer from "./CitationViewer";
