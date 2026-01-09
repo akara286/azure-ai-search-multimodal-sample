@@ -1,0 +1,51 @@
+.sidebar-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: var(--spacing-md);
+    gap: var(--spacing-md);
+}
+
+.new-chat-btn {
+    width: 100%;
+    justify-content: center;
+    background-color: var(--color-accent-primary) !important;
+    color: white !important;
+    border-radius: 8px !important;
+    height: 44px !important;
+}
+
+.new-chat-btn:hover {
+    background-color: var(--color-accent-secondary) !important;
+}
+
+.sidebar-divider {
+    opacity: 0.2;
+}
+
+.sidebar-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.sidebar-section.scrollable {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 4px; /* Space for scrollbar */
+}
+
+.section-title {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    margin-bottom: var(--spacing-xs);
+}
+
+.settings-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}

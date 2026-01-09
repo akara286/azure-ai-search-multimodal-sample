@@ -5,8 +5,11 @@ Uses GPT-5-mini to analyze complex queries and break them into
 focused subqueries for better retrieval results.
 """
 
+import hashlib
 import json
 import logging
+import os
+import time
 from typing import List, Optional
 from openai import AsyncAzureOpenAI
 
@@ -14,6 +17,12 @@ from models import Message, QueryPlan, SubQuery
 from prompts import QUERY_PLANNER_PROMPT, SEARCH_QUERY_OPTIMIZATION_PROMPT
 
 logger = logging.getLogger("backend_v2.query_planner")
+
+# Simple in-memory cache for query plans
+# Format: {cache_key: (QueryPlan, timestamp)}
+_query_plan_cache: dict[str, tuple[QueryPlan, float]] = {}
+CACHE_TTL_SECONDS = int(os.environ.get("QUERY_PLAN_CACHE_TTL", "300"))  # 5 min default
+MAX_CACHE_SIZE = int(os.environ.get("QUERY_PLAN_CACHE_SIZE", "100"))
 
 
 class QueryPlanner:
@@ -46,6 +55,7 @@ class QueryPlanner:
 
         For simple queries, returns a single optimized subquery.
         For complex queries, decomposes into multiple focused subqueries.
+        Results are cached to avoid redundant LLM calls.
 
         Args:
             user_message: The user's question
@@ -55,6 +65,13 @@ class QueryPlanner:
         Returns:
             QueryPlan with decomposed subqueries and reasoning
         """
+        # Check cache first
+        cache_key = self._get_cache_key(user_message, chat_history)
+        cached = self._get_from_cache(cache_key)
+        if cached:
+            logger.info(f"Cache hit for query: {user_message[:50]}...")
+            return cached
+
         logger.info(f"Planning query: {user_message[:100]}...")
 
         # Build the planning prompt
@@ -70,8 +87,8 @@ class QueryPlanner:
 Current user question: {user_message}
 
 Analyze this question and create a query plan with up to {max_subqueries} subqueries.
-Return your response as a valid JSON object."""
-            }
+Return your response as a valid JSON object.""",
+            },
         ]
 
         try:
@@ -80,13 +97,16 @@ Return your response as a valid JSON object."""
                 messages=planning_messages,
                 response_format={"type": "json_object"},
                 max_completion_tokens=1000,
+                reasoning_effort="high",
             )
 
             content = response.choices[0].message.content
 
             # Handle empty or None response
             if not content or not content.strip():
-                logger.warning("Empty response from query planner, using original query")
+                logger.warning(
+                    "Empty response from query planner, using original query"
+                )
                 return QueryPlan(
                     original_query=user_message,
                     subqueries=[
@@ -122,11 +142,15 @@ Return your response as a valid JSON object."""
                     )
                 ]
 
-            return QueryPlan(
+            plan = QueryPlan(
                 original_query=user_message,
                 subqueries=subqueries[:max_subqueries],
                 reasoning=plan_data.get("reasoning", "Single query execution"),
             )
+
+            # Cache the result
+            self._add_to_cache(cache_key, plan)
+            return plan
 
         except Exception as e:
             logger.error(f"Query planning failed: {e}")
@@ -171,8 +195,8 @@ Return your response as a valid JSON object."""
 
 Query to optimize: {query}
 
-Return a JSON object with the optimized query."""
-            }
+Return a JSON object with the optimized query.""",
+            },
         ]
 
         try:
@@ -181,6 +205,7 @@ Return a JSON object with the optimized query."""
                 messages=optimization_messages,
                 response_format={"type": "json_object"},
                 max_completion_tokens=200,
+                reasoning_effort="high",
             )
 
             content = response.choices[0].message.content
@@ -241,14 +266,15 @@ Return a JSON object with the optimized query."""
                 messages=[
                     {
                         "role": "system",
-                        "content": "You analyze queries for a search system. Respond with only 'yes' or 'no'."
+                        "content": "You analyze queries for a search system. Respond with only 'yes' or 'no'.",
                     },
                     {
                         "role": "user",
-                        "content": f"Is this query complex enough to benefit from being split into multiple search queries? Query: {user_message}"
-                    }
+                        "content": f"Is this query complex enough to benefit from being split into multiple search queries? Query: {user_message}",
+                    },
                 ],
                 max_completion_tokens=10,
+                reasoning_effort="high",
             )
 
             answer = response.choices[0].message.content.strip().lower()
@@ -268,9 +294,43 @@ Return a JSON object with the optimized query."""
             role = msg.get("role", "user")
             content_parts = msg.get("content", [])
             text = " ".join(
-                part.get("text", "") for part in content_parts
-                if isinstance(part, dict)
+                part.get("text", "") for part in content_parts if isinstance(part, dict)
             )
             formatted.append(f"{role.capitalize()}: {text}")
 
         return "\n".join(formatted)
+
+    def _get_cache_key(self, user_message: str, chat_history: List[Message]) -> str:
+        """Generate a cache key from the query and recent history."""
+        # Include last 2 messages for context-sensitivity
+        history_str = self._format_chat_history(
+            chat_history[-2:] if chat_history else []
+        )
+        key_input = f"{user_message}|{history_str}"
+        return hashlib.md5(key_input.encode()).hexdigest()
+
+    def _get_from_cache(self, cache_key: str) -> Optional[QueryPlan]:
+        """Get a query plan from cache if valid."""
+        global _query_plan_cache
+        if cache_key in _query_plan_cache:
+            plan, timestamp = _query_plan_cache[cache_key]
+            if time.time() - timestamp < CACHE_TTL_SECONDS:
+                return plan
+            # Expired, remove it
+            del _query_plan_cache[cache_key]
+        return None
+
+    def _add_to_cache(self, cache_key: str, plan: QueryPlan) -> None:
+        """Add a query plan to cache with LRU eviction."""
+        global _query_plan_cache
+
+        # Evict oldest entries if cache is full
+        if len(_query_plan_cache) >= MAX_CACHE_SIZE:
+            # Sort by timestamp and remove oldest 10%
+            sorted_keys = sorted(
+                _query_plan_cache.keys(), key=lambda k: _query_plan_cache[k][1]
+            )
+            for key in sorted_keys[: MAX_CACHE_SIZE // 10]:
+                del _query_plan_cache[key]
+
+        _query_plan_cache[cache_key] = (plan, time.time())

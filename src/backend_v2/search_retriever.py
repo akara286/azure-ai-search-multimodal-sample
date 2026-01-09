@@ -9,7 +9,9 @@ the Knowledge Base API is not used, implementing:
 - Scoring profiles
 """
 
+import asyncio
 import logging
+import time
 from typing import List, Optional
 from azure.core.credentials import TokenCredential
 from azure.search.documents.aio import SearchClient
@@ -105,7 +107,6 @@ class HybridSearchRetriever:
         # If all subqueries are empty, fallback to user message
         if not valid_subqueries:
             logger.warning("All subqueries are empty, using original user message")
-            from models import SubQuery
             valid_subqueries = [
                 SubQuery(
                     query=user_message,
@@ -114,20 +115,34 @@ class HybridSearchRetriever:
                 )
             ]
 
-        # Execute each subquery
-        for subquery in valid_subqueries:
+        # Execute all subqueries in parallel for better performance
+        async def execute_and_tag(subquery: SubQuery):
+            """Execute a search and tag results with source subquery."""
             results, rewrites = await self._execute_search(
                 query=subquery.query,
                 config=config,
             )
-
             # Tag results with source subquery
             for result in results:
                 result["source_subquery"] = subquery.query
+            return results, rewrites, subquery.query
 
+        # Run all subqueries concurrently
+        search_start = time.time()
+        search_tasks = [execute_and_tag(sq) for sq in valid_subqueries]
+        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+        search_time = (time.time() - search_start) * 1000
+        logger.info(f"[TIMING] Parallel search execution: {search_time:.0f}ms ({len(valid_subqueries)} subqueries)")
+
+        # Process results, handling any exceptions
+        for result in search_results:
+            if isinstance(result, Exception):
+                logger.warning(f"Subquery execution failed: {result}")
+                continue
+            results, rewrites, query = result
             all_results.extend(results)
             all_query_rewrites.extend(rewrites)
-            executed_subqueries.append(subquery.query)
+            executed_subqueries.append(query)
 
         # Deduplicate and re-rank combined results
         deduplicated = self._deduplicate_results(all_results)
@@ -209,6 +224,7 @@ class HybridSearchRetriever:
 
         # Execute the search
         try:
+            single_search_start = time.time()
             search_results = await self._search_client.search(**search_params)
 
             results: List[RetrievalResult] = []
@@ -221,6 +237,9 @@ class HybridSearchRetriever:
                     debug = result["@search.debug"]
                     if "queryRewrites" in debug:
                         query_rewrites.extend(debug["queryRewrites"])
+
+            single_search_time = (time.time() - single_search_start) * 1000
+            logger.info(f"[TIMING] Single search query: {single_search_time:.0f}ms (results: {len(results)})")
 
             return results, query_rewrites
 

@@ -1,6 +1,11 @@
 """Prompts for the modernized RAG pipeline."""
 
 # ---------------------------------------------------------------------
+# Standard response when no grounding documents are available
+# ---------------------------------------------------------------------
+NO_GROUNDING_RESPONSE = "I cannot answer this question because I could not find any relevant information in the knowledge base. Please try rephrasing your question or ask about topics covered in the indexed documents."
+
+# ---------------------------------------------------------------------
 # 1. SYSTEM_PROMPT - Answer Generation
 # ---------------------------------------------------------------------
 SYSTEM_PROMPT = """
@@ -20,11 +25,13 @@ Return **one valid JSON object** with exactly these fields:
 
 ### Response rules
 1. The value of the **answer** property must be formatted in Markdown.
-2. **Cite every factual statement** via the lists above.
-3. If *no* relevant source exists, reply exactly:
-   > I cannot answer with the provided knowledge base.
-4. Keep answers succinct yet self-contained.
-5. Ensure citations directly support your statements; avoid speculation.
+2. **CRITICAL: You MUST only answer based on the provided documents.** Never use information from your training data or make assumptions.
+3. **Cite every factual statement** by placing inline citations like [ref_id] immediately after each statement. Example: "The tower is tall [1]."
+4. If the provided documents do NOT contain information to answer the question, you MUST respond with EXACTLY this JSON:
+   {"answer": "I cannot answer this question because the provided documents do not contain relevant information.", "text_citations": [], "image_citations": []}
+5. Keep answers succinct yet self-contained.
+6. Ensure citations directly support your statements; avoid speculation.
+7. If you cannot cite a statement from the provided documents, do not include it in your answer.
 
 ### Example
 Input:
@@ -39,7 +46,7 @@ Input:
 
 Response:
 {
-  "answer": "The Eiffel Tower, located in Paris, France, was completed in 1889 and stands 330 meters tall. [1][2]",
+  "answer": "The Eiffel Tower is located in Paris, France [1]. It was completed in 1889 and stands 330 meters tall [2].",
   "text_citations": ["1", "2"],
   "image_citations": []
 }

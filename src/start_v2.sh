@@ -28,8 +28,13 @@ if [ "$1" == "--install" ]; then
 fi
 
 # Set default environment variables if not set
-export AZURE_OPENAI_MODEL_NAME="${AZURE_OPENAI_MODEL_NAME:-gpt-5-mini}"
-export AZURE_OPENAI_DEPLOYMENT="${AZURE_OPENAI_DEPLOYMENT:-gpt-5-mini}"
+# Answer generation model (default gpt-oss)
+export AZURE_OPENAI_MODEL_NAME="${AZURE_OPENAI_MODEL_NAME:-gpt-oss-120b}"
+export AZURE_OPENAI_DEPLOYMENT="${AZURE_OPENAI_DEPLOYMENT:-gpt-oss-120b}"
+
+# Knowledge Base retrieval model (default gpt-5-mini)
+export AZURE_OPENAI_KB_MODEL_NAME="${AZURE_OPENAI_KB_MODEL_NAME:-gpt-5-mini}"
+export AZURE_OPENAI_KB_DEPLOYMENT="${AZURE_OPENAI_KB_DEPLOYMENT:-gpt-5-mini}"
 
 # Start the server
 echo "Starting FastAPI server on port 8000..."

@@ -1,1 +1,0 @@
-USER_AGENT = "ai-search-multimodal-sample/1.0.0"

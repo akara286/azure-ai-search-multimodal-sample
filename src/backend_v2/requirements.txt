@@ -18,8 +18,12 @@ openai>=1.55.0
 pydantic>=2.10.0
 
 # Async HTTP
-aiohttp>=3.11.0
+httpx>=0.28.0  # FastAPI-recommended async HTTP client
 aiofiles>=24.1.0
+aiohttp>=3.9.0  # Required by azure-core for async operations
+
+# Rate Limiting
+slowapi>=0.1.9
 
 # Utilities
 python-dotenv>=1.0.1
